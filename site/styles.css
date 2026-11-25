@@ -40,3 +40,15 @@ dd { margin: 0 0 .5rem; color: var(--muted); }
 .skills dd { margin-bottom: 0; }
 summary { cursor: pointer; color: var(--accent); }
 .profile-link { display: inline-block; margin-top: 1rem; }
+
+.guestbook-form { display: grid; gap: .55rem; max-width: 38rem; margin-top: 1rem; }
+.guestbook-form label { font-weight: 700; }
+.guestbook-form input, .guestbook-form textarea { font: inherit; color: inherit; padding: .55rem .75rem; border: 1px solid #73867a; border-radius: .4rem; }
+.guestbook-form textarea { resize: vertical; }
+.guestbook-form button { justify-self: start; border: 0; cursor: pointer; font: inherit; font-weight: 700; }
+.guestbook-form button:disabled { opacity: .6; cursor: default; }
+#guestbook-status:empty { display: none; }
+.guestbook-entries { list-style: none; padding: 0; display: grid; gap: .75rem; max-width: 38rem; }
+.guestbook-entries li { background: white; border: 1px solid var(--line); border-radius: .5rem; padding: .95rem 1.1rem; overflow-wrap: anywhere; }
+.guestbook-entries time { color: var(--muted); margin-inline-start: .75rem; font-size: .9rem; }
+.guestbook-entries p { margin: .35rem 0 0; white-space: pre-wrap; }

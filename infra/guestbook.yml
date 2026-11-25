@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Week 3 portfolio guestbook with AppSync and DynamoDB.
+
+Resources:
+  GuestbookTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  GuestbookApi:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: cloud-portfolio-guestbook
+      AuthenticationType: API_KEY
+      IntrospectionConfig: DISABLED
+      QueryDepthLimit: 3
+      ResolverCountLimit: 4
+
+  GuestbookKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt GuestbookApi.ApiId
+      Description: Week 3 guestbook demo
+
+  GuestbookRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !GetAtt GuestbookApi.Arn
+      Policies:
+        - PolicyName: ReadAndWriteGuestbook
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                Resource: !GetAtt GuestbookTable.Arn
+
+  GuestbookDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt GuestbookApi.ApiId
+      Name: GuestbookDynamoDB
+      Type: AMAZON_DYNAMODB
+      ServiceRoleArn: !GetAtt GuestbookRole.Arn
+      DynamoDBConfig:
+        AwsRegion: !Ref AWS::Region
+        TableName: !Ref GuestbookTable
+
+  GuestbookSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt GuestbookApi.ApiId
+      Definition: |
+        type GuestbookEntry {
+          id: ID!
+          nickname: String!
+          message: String!
+          createdAt: AWSDateTime!
+        }
+
+        type Query {
+          guestbookEntries: [GuestbookEntry!]!
+        }
+
+        type Mutation {
+          addGuestbookEntry(nickname: String!, message: String!): GuestbookEntry!
+        }
+
+  ListEntries:
+    Type: AWS::AppSync::Resolver
+    DependsOn: GuestbookSchema
+    Properties:
+      ApiId: !GetAtt GuestbookApi.ApiId
+      DataSourceName: !GetAtt GuestbookDataSource.Name
+      TypeName: Query
+      FieldName: guestbookEntries
+      Kind: UNIT
+      Runtime:
+        Name: APPSYNC_JS
+        RuntimeVersion: '1.0.0'
+      Code: |
+        import { util } from '@aws-appsync/utils';
+
+        export function request() {
+          return {
+            operation: 'Query',
+            query: {
+              expression: '#pk = :pk',
+              expressionNames: { '#pk': 'pk' },
+              expressionValues: { ':pk': util.dynamodb.toDynamoDB('GUESTBOOK') },
+            },
+            scanIndexForward: false,
+            consistentRead: true,
+            limit: 10,
+          };
+        }
+
+        export function response(ctx) {
+          if (ctx.error) util.error('Could not read the guestbook.', ctx.error.type);
+          return ctx.result.items;
+        }
+
+  AddEntry:
+    Type: AWS::AppSync::Resolver
+    DependsOn: GuestbookSchema
+    Properties:
+      ApiId: !GetAtt GuestbookApi.ApiId
+      DataSourceName: !GetAtt GuestbookDataSource.Name
+      TypeName: Mutation
+      FieldName: addGuestbookEntry
+      Kind: UNIT
+      Runtime:
+        Name: APPSYNC_JS
+        RuntimeVersion: '1.0.0'
+      Code: |
+        import { util } from '@aws-appsync/utils';
+
+        export function request(ctx) {
+          const nickname = ctx.args.nickname.trim();
+          const message = ctx.args.message.trim();
+          if (nickname.length === 0 || nickname.length > 20) {
+            util.error('Nickname must contain 1 to 20 characters.', 'InvalidInput');
+          }
+          if (message.length === 0 || message.length > 200) {
+            util.error('Message must contain 1 to 200 characters.', 'InvalidInput');
+          }
+          const id = util.autoId();
+          const createdAt = util.time.nowISO8601();
+          return {
+            operation: 'PutItem',
+            key: util.dynamodb.toMapValues({
+              pk: 'GUESTBOOK',
+              sk: createdAt + '#' + id,
+            }),
+            attributeValues: util.dynamodb.toMapValues({
+              id, nickname, message, createdAt,
+            }),
+            condition: {
+              expression: 'attribute_not_exists(#sk)',
+              expressionNames: { '#sk': 'sk' },
+            },
+          };
+        }
+
+        export function response(ctx) {
+          if (ctx.error) util.error('Could not save the guestbook entry.', ctx.error.type);
+          return ctx.result;
+        }
+
+Outputs:
+  GuestbookApiId:
+    Value: !GetAtt GuestbookApi.ApiId
+  GuestbookGraphQLUrl:
+    Value: !GetAtt GuestbookApi.GraphQLUrl
+  GuestbookTableName:
+    Value: !Ref GuestbookTable
